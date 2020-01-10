@@ -1,0 +1,170 @@
+diff -up rpcbind-0.2.0/src/pmap_svc.c.orig rpcbind-0.2.0/src/pmap_svc.c
+--- rpcbind-0.2.0/src/pmap_svc.c.orig	2009-05-29 09:38:22.000000000 -0400
++++ rpcbind-0.2.0/src/pmap_svc.c	2017-05-17 14:23:56.471172413 -0400
+@@ -173,6 +173,7 @@ pmapproc_change(struct svc_req *rqstp /*
+ 	long ans;
+ 	uid_t uid;
+ 	char uidbuf[32];
++	int rc = TRUE;
+ 
+ 	/*
+ 	 * Can't use getpwnam here. We might end up calling ourselves
+@@ -192,7 +193,8 @@ pmapproc_change(struct svc_req *rqstp /*
+ 
+ 	if (!svc_getargs(xprt, (xdrproc_t) xdr_pmap, (char *)&reg)) {
+ 		svcerr_decode(xprt);
+-		return (FALSE);
++		rc = FALSE;
++		goto done;
+ 	}
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+@@ -203,7 +205,8 @@ pmapproc_change(struct svc_req *rqstp /*
+ 
+ 	if (!check_access(xprt, op, &reg, PMAPVERS)) {
+ 		svcerr_weakauth(xprt);
+-		return (FALSE);
++		rc = FALSE;
++		goto done;
+ 	}
+ 		
+ 	rpcbreg.r_prog = reg.pm_prog;
+@@ -256,7 +259,16 @@ done_change:
+ 		rpcbs_set(RPCBVERS_2_STAT, ans);
+ 	else
+ 		rpcbs_unset(RPCBVERS_2_STAT, ans);
+-	return (TRUE);
++done:
++	if (!svc_freeargs(xprt, (xdrproc_t) xdr_pmap, (char *)&reg)) {
++		if (debugging) {
++			fprintf(stderr, "unable to free arguments\n");
++			if (doabort) {
++				rpcbind_abort();
++			}
++		}
++	}
++	return (rc);
+ }
+ 
+ /* ARGSUSED */
+@@ -270,15 +282,18 @@ pmapproc_getport(struct svc_req *rqstp /
+ #ifdef RPCBIND_DEBUG
+ 	char *uaddr;
+ #endif
++	int rc = TRUE;
+ 
+ 	if (!svc_getargs(xprt, (xdrproc_t) xdr_pmap, (char *)&reg)) {
+ 		svcerr_decode(xprt);
+-		return (FALSE);
++		rc = FALSE;
++		goto done;
+ 	}
+ 
+ 	if (!check_access(xprt, PMAPPROC_GETPORT, &reg, PMAPVERS)) {
+ 		svcerr_weakauth(xprt);
+-		return FALSE;
++		rc = FALSE;
++		goto done;
+ 	}
+ 
+ #ifdef RPCBIND_DEBUG
+@@ -327,22 +342,34 @@ pmapproc_getport(struct svc_req *rqstp /
+ 	rpcbs_getaddr(RPCBVERS_2_STAT, reg.pm_prog, reg.pm_vers,
+ 		pmap_ipprot2netid(reg.pm_prot) ?: "<unknown>",
+ 		port ? udptrans : "");
+-
+-	return (TRUE);
++done:
++	if (!svc_freeargs(xprt, (xdrproc_t) xdr_pmap, (char *)&reg)) {
++		if (debugging) {
++			fprintf(stderr, "unable to free arguments\n");
++			if (doabort) {
++				rpcbind_abort();
++			}
++		}
++	}
++	return (rc);
+ }
+ 
+ /* ARGSUSED */
+ static bool_t
+ pmapproc_dump(struct svc_req *rqstp /*__unused*/, SVCXPRT *xprt)
+ {
++	int rc = TRUE;
++
+ 	if (!svc_getargs(xprt, (xdrproc_t)xdr_void, NULL)) {
+ 		svcerr_decode(xprt);
+-		return (FALSE);
++		rc = FALSE;
++		goto done;
+ 	}
+ 
+ 	if (!check_access(xprt, PMAPPROC_DUMP, NULL, PMAPVERS)) {
+ 		svcerr_weakauth(xprt);
+-		return FALSE;
++		rc = FALSE;
++		goto done;
+ 	}
+ 	
+ 	if ((!svc_sendreply(xprt, (xdrproc_t) xdr_pmaplist_ptr,
+@@ -353,7 +380,17 @@ pmapproc_dump(struct svc_req *rqstp /*__
+ 			rpcbind_abort();
+ 		}
+ 	}
+-	return (TRUE);
++
++done:
++	if (!svc_freeargs(xprt, (xdrproc_t) xdr_void, (char *)NULL)) {
++		if (debugging) {
++			fprintf(stderr, "unable to free arguments\n");
++			if (doabort) {
++				rpcbind_abort();
++			}
++		}
++	}
++	return (rc);
+ }
+ 
+ int pmap_netid2ipprot(const char *netid)
+diff -up rpcbind-0.2.0/src/rpcb_svc_4.c.orig rpcbind-0.2.0/src/rpcb_svc_4.c
+--- rpcbind-0.2.0/src/rpcb_svc_4.c.orig	2009-05-29 09:38:22.000000000 -0400
++++ rpcbind-0.2.0/src/rpcb_svc_4.c	2017-05-17 14:25:14.383172333 -0400
+@@ -218,7 +218,7 @@ rpcb_service_4(struct svc_req *rqstp, SV
+ 		svcerr_decode(transp);
+ 		if (debugging)
+ 			(void) fprintf(stderr, "rpcbind: could not decode\n");
+-		return;
++		goto done;
+ 	}
+ 	if (!check_access(transp, rqstp->rq_proc, &argument, RPCBVERS4)) {
+ 		svcerr_weakauth(transp);
+diff -up rpcbind-0.2.0/src/rpcb_svc_com.c.orig rpcbind-0.2.0/src/rpcb_svc_com.c
+--- rpcbind-0.2.0/src/rpcb_svc_com.c.orig	2017-05-17 14:27:22.665172200 -0400
++++ rpcbind-0.2.0/src/rpcb_svc_com.c	2017-05-17 14:27:48.684172174 -0400
+@@ -930,6 +930,14 @@ error:
+ 	if (call_msg.rm_xid != 0)
+ 		(void) free_slot_by_xid(call_msg.rm_xid);
+ out:
++	if (!svc_freeargs(transp, (xdrproc_t) xdr_rmtcall_args, (char *) &a)) {
++		if (debugging) {
++			fprintf(stderr, "unable to free arguments\n");
++			if (doabort) {
++				rpcbind_abort();
++			}
++		}
++	}
+ 	if (local_uaddr)
+ 		free(local_uaddr);
+ 	if (buf_alloc)
+diff -up rpcbind-0.2.0/src/rpcb_svc.c.orig rpcbind-0.2.0/src/rpcb_svc.c
+--- rpcbind-0.2.0/src/rpcb_svc.c.orig	2009-05-29 09:38:22.000000000 -0400
++++ rpcbind-0.2.0/src/rpcb_svc.c	2017-05-17 14:29:50.586172048 -0400
+@@ -164,7 +164,7 @@ rpcb_service_3(struct svc_req *rqstp, SV
+ 		svcerr_decode(transp);
+ 		if (debugging)
+ 			(void) fprintf(stderr, "rpcbind: could not decode\n");
+-		return;
++		goto done;
+ 	}
+ 	if (!check_access(transp, rqstp->rq_proc, &argument, RPCBVERS)) {
+ 		svcerr_weakauth(transp);
