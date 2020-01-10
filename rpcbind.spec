@@ -2,7 +2,7 @@
 
 Name:           rpcbind
 Version:        0.2.0
-Release:	13%{?dist}.1
+Release:	13%{?dist}
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
 License:        GPL
@@ -29,10 +29,9 @@ Patch105: rpcbind-0.2.0-broadcast.patch
 #
 Patch106: rpcbind-0.2.0-pmapcallit-memorycorp.patch
 #
-# RHEL6.9-Z
+# RHEL6.10
 #
 Patch107: rpcbind-0.2.0-memleadks.patch
-Patch108: rpcbind-0.2.0-freeing-static-memory.patch
 
 Requires: glibc-common setup
 Conflicts: man-pages < 2.43-12
@@ -71,8 +70,6 @@ RPC calls on a server on that machine.
 %patch106 -p1
 # 1449464 - CVE-2017-8779 rpcbind: libtirpc, libntirpc: Memory leak...
 %patch107 -p1
-# 1458240 - rpcbind crash on start
-%patch108 -p1
 
 %build
 %ifarch s390 s390x
@@ -153,9 +150,6 @@ fi
 %dir %attr(700,rpc,rpc) /var/cache/rpcbind
 
 %changelog
-* Tue May 30  2017 Steve Dickson <steved@redhat.com> - 0.2.0-13_9.1
-- Stop freeing static memory (bz 1458240)
-
 * Thu May 18 2017 Steve Dickson <steved@redhat.com> - 0.2.0-13_9
 - Fix for CVE-2017-8779 (bz 1449461)
 
