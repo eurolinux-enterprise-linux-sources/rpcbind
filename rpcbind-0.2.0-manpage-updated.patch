@@ -1,0 +1,11 @@
+diff -up rpcbind-0.2.0/man/rpcbind.8.orig rpcbind-0.2.0/man/rpcbind.8
+--- rpcbind-0.2.0/man/rpcbind.8.orig	2009-05-29 09:38:22.000000000 -0400
++++ rpcbind-0.2.0/man/rpcbind.8	2012-08-20 11:48:48.000000000 -0400
+@@ -141,7 +141,6 @@ All RPC servers must be restarted if
+ .Nm
+ is restarted.
+ .Sh SEE ALSO
+-.Xr rpcbind 3 ,
+ .Xr rpcinfo 8
+ .Sh LINUX PORT
+ .Bl Aurelien Charbon <aurelien.charbon@bull.net>
