@@ -2,7 +2,7 @@
 
 Name:           rpcbind
 Version:        0.2.0
-Release:	12%{?dist}
+Release:	13%{?dist}
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
 License:        GPL
@@ -34,8 +34,8 @@ Conflicts: man-pages < 2.43-12
 BuildRequires: automake, autoconf, libtool
 BuildRequires: libtirpc-devel, quota-devel, tcp_wrappers-devel
 BuildRequires: libgssglue-devel
-Requires(pre): /usr/sbin/groupadd  /usr/sbin/groupdel
-Requires(pre): /usr/sbin/useradd  /usr/sbin/userdel
+Requires(pre): /usr/sbin/groupadd
+Requires(pre): /usr/sbin/useradd
 Requires(pre): coreutils
 Requires(post): /sbin/chkconfig
 Requires(post): /sbin/chkconfig
@@ -107,21 +107,18 @@ rm -rf %{buildroot}
 
 %pre
 
-# Check the validity of the rpc uid and gid.
-# If they don't exist, create them
-# If they exist but are the wrong value, remove them 
-#   and recreate them with the correct value
-# If they exist and are the correct value do nothing
-rpcid=`getent passwd rpc | cut -d: -f 3`
-if [ -n "$rpcid" -a "$rpcid" != "32" ]; then
-	/usr/sbin/userdel  rpc 2> /dev/null || :
-	/usr/sbin/groupdel rpc 2> /dev/null || : 
-fi
-if [ -z "$rpcid" -o "$rpcid" != "32" ]; then
-	/usr/sbin/groupadd -o -g 32 rpc > /dev/null 2>&1
-	/usr/sbin/useradd -o -l -c "Rpcbind Daemon" -d /var/cache/rpcbind -g 32 \
-    	-M -s /sbin/nologin -u 32 rpc > /dev/null 2>&1
-fi
+# Softly static allocate the rpc uid and gid.
+getent group rpc >/dev/null || groupadd -f -g 32 -r rpc
+if ! getent passwd rpc >/dev/null ; then
+	if ! getent passwd 32 >/dev/null ; then
+	   useradd -l -c "Rpcbind Daemon" -d /var/lib/rpcbind  \
+	      -g rpc -M -s /sbin/nologin -o -u 32 rpc > /dev/null 2>&1
+	else
+	   useradd -l -c "Rpcbind Daemon" -d /var/lib/rpcbind  \
+	      -g rpc -M -s /sbin/nologin rpc > /dev/null 2>&1
+	fi
+ fi
+
 %post 
 /sbin/chkconfig --add %{name}
 
@@ -129,8 +126,6 @@ fi
 if [ $1 -eq 0 ]; then
     service rpcbind stop > /dev/null 2>&1
     /sbin/chkconfig --del %{name}
-	/usr/sbin/userdel  rpc 2>/dev/null || :
-	/usr/sbin/groupdel rpc 2>/dev/null || :
 	rm -rf /var/cache/rpcbind
 fi
 %postun
@@ -149,6 +144,9 @@ fi
 %dir %attr(700,rpc,rpc) /var/cache/rpcbind
 
 %changelog
+* Mon Jun 27 2016 Steve Dickson <steved@redhat.com> - 0.2.0-13
+- Soft static allocate rpc uid/gid (bz 1300533)
+
 * Fri Nov 13 2015 Steve Dickson <steved@redhat.com> - 0.2.0-12
 - Fix memory corruption in PMAP_CALLIT code (bz 1186933)
 
