@@ -2,10 +2,10 @@
 
 Name:           rpcbind
 Version:        0.2.0
-Release:	13%{?dist}
+Release:	    16%{?dist}
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
-License:        GPL
+License:        BSD
 URL:            http://nfsv4.bullopensource.org
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-root-%(%{__id_u} -n)
@@ -32,6 +32,7 @@ Patch106: rpcbind-0.2.0-pmapcallit-memorycorp.patch
 # RHEL6.10
 #
 Patch107: rpcbind-0.2.0-memleadks.patch
+Patch108: rpcbind-0.2.0-freeing-static-memory.patch
 
 Requires: glibc-common setup
 Conflicts: man-pages < 2.43-12
@@ -70,6 +71,8 @@ RPC calls on a server on that machine.
 %patch106 -p1
 # 1449464 - CVE-2017-8779 rpcbind: libtirpc, libntirpc: Memory leak...
 %patch107 -p1
+# 1455142 - rpcbind crash on start
+%patch108 -p1
 
 %build
 %ifarch s390 s390x
@@ -150,8 +153,14 @@ fi
 %dir %attr(700,rpc,rpc) /var/cache/rpcbind
 
 %changelog
-* Thu May 18 2017 Steve Dickson <steved@redhat.com> - 0.2.0-13_9
-- Fix for CVE-2017-8779 (bz 1449461)
+* Thu Feb  8 2018 Steve Dickson <steved@redhat.com> - 0.2.0-16
+- Changed the license tag to BSD (bz 1336558)
+
+* Tue May 30 2017 Steve Dickson <steved@redhat.com> - 0.2.0-15
+- Stop freeing static memory (bz 1455142)
+
+* Thu May 18 2017 Steve Dickson <steved@redhat.com> - 0.2.0-14
+- Fix for CVE-2017-8779 (bz 1449464)
 
 * Mon Jun 27 2016 Steve Dickson <steved@redhat.com> - 0.2.0-13
 - Soft static allocate rpc uid/gid (bz 1300533)
