@@ -1,10 +1,10 @@
 Name:           rpcbind
 Version:        0.2.0
-Release:        44%{?dist}
+Release:        47%{?dist}
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
 License:        BSD
-URL:            http://nfsv4.bullopensource.org
+URL:            http://git.linux-nfs.org/?p=steved/rpcbind.git;a=summary
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-root-%(%{__id_u} -n)
 Source0:        http://downloads.sourceforge.net/rpcbind/%{name}-%{version}.tar.bz2
@@ -197,6 +197,15 @@ fi
 %dir %attr(700,rpc,rpc) /var/lib/rpcbind
 
 %changelog
+* Sat Aug 25 2018 Steve Dickson <steved@redhat.com> - 0.2.0-47
+- rpcbind.service: Not pulling the rpcbind.target (bz 1613210)
+
+* Mon Aug 20 2018 Steve Dickson <steved@redhat.com> - 0.2.0-46
+- Updated the upsteam URL (bz 1583921)
+
+* Thu Apr 19 2018 Steve Dickson <steved@redhat.com> - 0.2.0-45
+- Added back the ListenStream stanzas from rpcbind.socket (bz 1530721)
+
 * Fri Jan  5 2018 Steve Dickson <steved@redhat.com> - 0.2.0-44
 * Removed ListenStream stanzas from rpcbind.socket (bz 1425758)
 

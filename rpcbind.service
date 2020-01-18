@@ -4,8 +4,8 @@ DefaultDependencies=no
 
 # Make sure we use the IP addresses listed for
 # rpcbind.socket, no matter how this unit is started.
-Wants=rpcbind.socket
-After=rpcbind.socket
+Requires=rpcbind.socket
+Wants=rpcbind.target
 After=systemd-tmpfiles-setup.service
 
 [Service]
