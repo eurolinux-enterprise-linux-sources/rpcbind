@@ -1,6 +1,6 @@
 Name:           rpcbind
 Version:        0.2.0
-Release:        38%{?dist}.1
+Release:        42%{?dist}
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
 License:        BSD
@@ -30,13 +30,16 @@ Patch008: rpcbind-0.2.0-warmstart-noerror.patch
 Patch009: rpcbind-0.2.0-CVE20157236-memcorrup.patch 
 Patch010: rpcbind-0.2.0-debug.patch
 #
-# RHEL7.3-Z
+# RHEL7.4
 #
-Patch011: rpcbind-0.2.0-memleaks.patch
-Patch012: rpcbind-0.2.0-freeing-static-memory.patch
+Patch011: rpcbind-0.2.0-xlog-warn.patch
+Patch012: rpcbind-0.2.0-i-warn.patch
+Patch013: rpcbind-0.2.0-memleaks.patch
+Patch014: rpcbind-0.2.0-freeing-static-memory.patch
 
 
 Requires: glibc-common setup
+Requires: libtirpc >= 0.2.4-0.7
 Conflicts: man-pages < 2.43-12
 BuildRequires: automake, autoconf, libtool, systemd-units
 BuildRequires: libtirpc-devel, quota-devel, tcp_wrappers-devel, systemd-devel
@@ -73,10 +76,14 @@ RPC calls on a server on that machine.
 %patch009 -p1
 # 1358890 - Enable upstream debugging
 %patch010 -p1
-# 1449462 - CVE-2017-8779 rpcbind: libtirpc, libntirpc: Memory leak...
+# 1377531 - Compiler warning: implicit declaration of function 'xlog'....
 %patch011 -p1
-# 1457172 - rpcbind crash on start 
+# 1377560 - Compiler warning: unused variable 'i' [-Wunused-variable]
 %patch012 -p1
+# 1449456 rpcbind: Memory leak when failing to parse XDR strings...
+%patch013 -p1
+# 1454876 - rpcbind crash on start
+%patch014 -p1
 
 %build
 %ifarch s390 s390x
@@ -190,11 +197,19 @@ fi
 %dir %attr(700,rpc,rpc) /var/lib/rpcbind
 
 %changelog
-* Wed May 31 2017 Steve Dickson <steved@redhat.com> - 0.2.0-38_3.1
-- Stop freeing static memory (bz 1457172)
+* Tue May 30 2017 Steve Dickson <steved@redhat.com> - 0.2.0-42
+- Stop freeing static memory (bz 1454876)
 
-* Wed May 17 2017 Steve Dickson <steved@redhat.com> - 0.2.0-38_3
-- Fixed typo in memory leaks patch (bz 1449462)
+* Wed May 17 2017 Steve Dickson <steved@redhat.com> - 0.2.0-41
+- Fixed typo in memory leaks patch (bz 1449456)
+
+* Thu May 11 2017 Steve Dickson <steved@redhat.com> - 0.2.0-40
+- Fixed memory leaks (bz 1449456)
+
+* Sat Feb 25 2017 Steve Dickson <steved@redhat.com> - 0.2.0-39
+- Added libtirpc dependency (bz 1396291)
+- Removed xlog warning (bz 1377531)
+- Removed an 'i' warning (bz 1377560)
 
 * Tue Aug  2 2016 Steve Dickson <steved@redhat.com> - 0.2.0-38
 - Removing the braces from the ${RPCBIND_ARGS} in rpcbind.service (bz 1362232)
