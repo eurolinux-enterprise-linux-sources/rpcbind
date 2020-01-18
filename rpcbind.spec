@@ -1,6 +1,6 @@
 Name:           rpcbind
 Version:        0.2.0
-Release:        47%{?dist}
+Release:        48%{?dist}
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
 License:        BSD
@@ -36,6 +36,10 @@ Patch011: rpcbind-0.2.0-xlog-warn.patch
 Patch012: rpcbind-0.2.0-i-warn.patch
 Patch013: rpcbind-0.2.0-memleaks.patch
 Patch014: rpcbind-0.2.0-freeing-static-memory.patch
+#
+# RHEL7.7
+#
+Patch015: rpcbind-0.2.0-rpcinfo-buf-overflow.patch
 
 
 Requires: glibc-common setup
@@ -84,6 +88,8 @@ RPC calls on a server on that machine.
 %patch013 -p1
 # 1454876 - rpcbind crash on start
 %patch014 -p1
+# 1637567 - rpcinfo: Fix stack buffer overflow
+%patch015 -p1
 
 %build
 %ifarch s390 s390x
@@ -197,6 +203,9 @@ fi
 %dir %attr(700,rpc,rpc) /var/lib/rpcbind
 
 %changelog
+* Tue Jan 22 2019 Steve Dickson <steved@redhat.com> - 0.2.0-48
+- rpcinfo: Fix stack buffer overflow (bz 1637567)
+
 * Sat Aug 25 2018 Steve Dickson <steved@redhat.com> - 0.2.0-47
 - rpcbind.service: Not pulling the rpcbind.target (bz 1613210)
 
