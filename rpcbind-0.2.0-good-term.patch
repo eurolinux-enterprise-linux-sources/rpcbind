@@ -1,0 +1,16 @@
+diff -up rpcbind-0.2.0/src/rpcbind.c.orig rpcbind-0.2.0/src/rpcbind.c
+--- rpcbind-0.2.0/src/rpcbind.c.orig	2015-05-04 10:03:47.261693706 -0400
++++ rpcbind-0.2.0/src/rpcbind.c	2015-05-04 11:07:35.570042694 -0400
+@@ -797,11 +797,9 @@ terminate(int dummy /*__unused*/)
+ 	unlink(_PATH_RPCBINDSOCK);
+ 	unlink(RPCBINDDLOCK);
+ #ifdef WARMSTART
+-	syslog(LOG_ERR,
+-		"rpcbind terminating on signal. Restart with \"rpcbind -w\"");
+ 	write_warmstart();	/* Dump yourself */
+ #endif
+-	exit(2);
++	exit(0); /* exit gracefully */
+ }
+ 
+ void

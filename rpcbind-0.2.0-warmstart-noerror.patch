@@ -1,0 +1,17 @@
+diff -up rpcbind-0.2.0/src/warmstart.c.orig rpcbind-0.2.0/src/warmstart.c
+--- rpcbind-0.2.0/src/warmstart.c.orig	2015-07-30 13:54:52.236810612 -0400
++++ rpcbind-0.2.0/src/warmstart.c	2015-07-30 13:56:25.469502104 -0400
+@@ -106,9 +106,10 @@ read_struct(char *filename, xdrproc_t st
+ 		fprintf(stderr, "rpcbind: using '%s' startup file\n", filename);
+ 
+ 	if ((fp = fopen(filename, "r")) == NULL) {
+-		syslog(LOG_ERR,
+-			"Cannot open '%s' file for reading, errno %d (%s)", 
+-			filename, errno, strerror(errno));
++		if (errno != ENOENT)
++			syslog(LOG_ERR,
++				"Cannot open '%s' file for reading, errno %d (%s)", 
++				filename, errno, strerror(errno));
+ 		goto error;
+ 	}
+ 

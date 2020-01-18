@@ -1,0 +1,1261 @@
+diff --git a/Makefile.am b/Makefile.am
+index 264ffa6..0cbea8c 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -15,6 +15,10 @@ AM_CPPFLAGS +=	-DRPCBIND_DEBUG -DSVC_RUN_DEBUG -DDEBUG_RMTCALL
+ AM_CPPFLAGS +=	-DND_DEBUG -DBIND_DEBUG
+ endif
+ 
++if LIBSETDEBUG
++AM_CPPFLAGS +=	-DLIB_SET_DEBUG
++endif
++
+ if WARMSTART
+ AM_CPPFLAGS +=	-DWARMSTART
+ endif
+@@ -36,7 +40,8 @@ rpcbind_SOURCES = \
+ 	src/rpcbind.h \
+ 	src/security.c \
+ 	src/util.c \
+-	src/warmstart.c
++	src/warmstart.c \
++	src/xlog.c
+ rpcbind_LDADD = $(TIRPC_LIBS)
+ 
+ if SYSTEMD
+diff --git a/configure.ac b/configure.ac
+index b97b5a0..a260577 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -12,6 +12,10 @@ AM_CONDITIONAL(LIBWRAP, test x$enable_libwrap = xyes)
+ AC_ARG_ENABLE([debug],
+   AS_HELP_STRING([--enable-debug], [Turns on rpcbind debugging @<:@default=no@:>@]))
+ AM_CONDITIONAL(DEBUG, test x$enable_debug = xyes)
++if test x"$enable_debug" = xyes; then
++	AC_CHECK_LIB([tirpc], [libtirpc_set_debug], [lib_setdebug=yes])
++fi
++AM_CONDITIONAL(LIBSETDEBUG, test x$lib_setdebug = xyes)
+ 
+ AC_ARG_ENABLE([warmstarts],
+   AS_HELP_STRING([--enable-warmstarts], [Enables Warm Starts @<:@default=no@:>@]))
+diff --git a/man/rpcbind.8 b/man/rpcbind.8
+index da32701..af6200f 100644
+--- a/man/rpcbind.8
++++ b/man/rpcbind.8
+@@ -76,8 +76,8 @@ do an abort on errors.
+ Run in debug mode.
+ In this mode,
+ .Nm
+-will not fork when it starts, will print additional information
+-during operation, and will abort on certain errors if
++will log additional information during operation, 
++and will abort on certain errors if
+ .Fl a
+ is also specified.
+ With this option, the name-to-address translation consistency
+diff --git a/src/pmap_svc.c b/src/pmap_svc.c
+index 337e64d..ad28b93 100644
+--- a/src/pmap_svc.c
++++ b/src/pmap_svc.c
+@@ -54,9 +54,11 @@ static	char sccsid[] = "@(#)pmap_svc.c 1.23 89/04/05 Copyr 1984 Sun Micro";
+ #include <rpc/pmap_prot.h>
+ #include <rpc/rpcb_prot.h>
+ #ifdef RPCBIND_DEBUG
++#include <syslog.h>
+ #include <stdlib.h>
+ #endif
+ #include "rpcbind.h"
++#include "xlog.h"
+ #include <rpc/svc_soc.h> /* svc_getcaller routine definition */
+ static struct pmaplist *find_service_pmap __P((rpcprog_t, rpcvers_t,
+ 					       rpcprot_t));
+@@ -78,7 +80,7 @@ pmap_service(struct svc_req *rqstp, SVCXPRT *xprt)
+ 		 */
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "PMAPPROC_NULL\n");
++			xlog(LOG_DEBUG, "PMAPPROC_NULL\n");
+ #endif
+ 		check_access(xprt, rqstp->rq_proc, 0, PMAPVERS);
+ 		if ((!svc_sendreply(xprt, (xdrproc_t) xdr_void, NULL)) &&
+@@ -117,7 +119,7 @@ pmap_service(struct svc_req *rqstp, SVCXPRT *xprt)
+ 		 */
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "PMAPPROC_DUMP\n");
++			xlog(LOG_DEBUG, "PMAPPROC_DUMP\n");
+ #endif
+ 		pmapproc_dump(rqstp, xprt);
+ 		break;
+@@ -196,7 +198,7 @@ pmapproc_change(struct svc_req *rqstp /*__unused*/, SVCXPRT *xprt, unsigned long
+ 	}
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-	  fprintf(stderr, "%s request for (%lu, %lu) : ",
++	  xlog(LOG_DEBUG, "%s request for (%lu, %lu) : ",
+ 		  op == PMAPPROC_SET ? "PMAP_SET" : "PMAP_UNSET",
+ 		  reg.pm_prog, reg.pm_vers);
+ #endif
+@@ -243,14 +245,14 @@ pmapproc_change(struct svc_req *rqstp /*__unused*/, SVCXPRT *xprt, unsigned long
+ done_change:
+ 	if ((!svc_sendreply(xprt, (xdrproc_t) xdr_long, (caddr_t) &ans)) &&
+ 	    debugging) {
+-		fprintf(stderr, "portmap: svc_sendreply\n");
++		xlog(L_ERROR, "portmap: svc_sendreply failed!\n");
+ 		if (doabort) {
+ 			rpcbind_abort();
+ 		}
+ 	}
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "%s\n", ans == TRUE ? "succeeded" : "failed");
++		xlog(LOG_DEBUG, "%s\n", ans == TRUE ? "succeeded" : "failed");
+ #endif
+ 	if (op == PMAPPROC_SET)
+ 		rpcbs_set(RPCBVERS_2_STAT, ans);
+@@ -285,7 +287,7 @@ pmapproc_getport(struct svc_req *rqstp /*__unused*/, SVCXPRT *xprt)
+ 	if (debugging) {
+ 		uaddr =  taddr2uaddr(rpcbind_get_conf(xprt->xp_netid),
+ 			    svc_getrpccaller(xprt));
+-		fprintf(stderr, "PMAP_GETPORT req for (%lu, %lu, %s) from %s :",
++		xlog(LOG_DEBUG, "PMAP_GETPORT req for (%lu, %lu, %s) from %s :",
+ 			reg.pm_prog, reg.pm_vers,
+ 			pmap_ipprot2netid(reg.pm_prot)?: "<invalid>",
+ 			uaddr);
+@@ -315,14 +317,14 @@ pmapproc_getport(struct svc_req *rqstp /*__unused*/, SVCXPRT *xprt)
+ 	lport = port;
+ 	if ((!svc_sendreply(xprt, (xdrproc_t) xdr_long, (caddr_t)&lport)) &&
+ 			debugging) {
+-		(void) fprintf(stderr, "portmap: svc_sendreply\n");
++		xlog(L_ERROR, "portmap: svc_sendreply failed!\n");
+ 		if (doabort) {
+ 			rpcbind_abort();
+ 		}
+ 	}
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "port = %d\n", port);
++		xlog(LOG_DEBUG, "port = %d\n", port);
+ #endif
+ 	rpcbs_getaddr(RPCBVERS_2_STAT, reg.pm_prog, reg.pm_vers,
+ 		pmap_ipprot2netid(reg.pm_prot) ?: "<unknown>",
+@@ -347,8 +349,7 @@ pmapproc_dump(struct svc_req *rqstp /*__unused*/, SVCXPRT *xprt)
+ 	
+ 	if ((!svc_sendreply(xprt, (xdrproc_t) xdr_pmaplist_ptr,
+ 			(caddr_t)&list_pml)) && debugging) {
+-		if (debugging)
+-			(void) fprintf(stderr, "portmap: svc_sendreply\n");
++		xlog(L_ERROR, "portmap: svc_sendreply failed!\n");
+ 		if (doabort) {
+ 			rpcbind_abort();
+ 		}
+diff --git a/src/rpcb_svc.c b/src/rpcb_svc.c
+index e350f85..92361a2 100644
+--- a/src/rpcb_svc.c
++++ b/src/rpcb_svc.c
+@@ -86,7 +86,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 		 */
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_NULL\n");
++			xlog(LOG_DEBUG, "RPCBPROC_NULL");
+ #endif
+ 		/* This call just logs, no actual checks */
+ 		check_access(transp, rqstp->rq_proc, 0, RPCBVERS);
+@@ -114,7 +114,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_DUMP:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_DUMP\n");
++			xlog(LOG_DEBUG, "RPCBPROC_DUMP");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_void;
+ 		xdr_result = (xdrproc_t)xdr_rpcblist_ptr;
+@@ -128,7 +128,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_GETTIME:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_GETTIME\n");
++			xlog(LOG_DEBUG, "RPCBPROC_GETTIME");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_void;
+ 		xdr_result = (xdrproc_t)xdr_u_long;
+@@ -138,7 +138,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_UADDR2TADDR:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_UADDR2TADDR\n");
++			xlog(LOG_DEBUG, "RPCBPROC_UADDR2TADDR");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_wrapstring;
+ 		xdr_result = (xdrproc_t)xdr_netbuf;
+@@ -148,7 +148,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_TADDR2UADDR:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_TADDR2UADDR\n");
++			xlog(LOG_DEBUG, "RPCBPROC_TADDR2UADDR");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_netbuf;
+ 		xdr_result = (xdrproc_t)xdr_wrapstring;
+@@ -164,7 +164,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 				(char *) &argument)) {
+ 		svcerr_decode(transp);
+ 		if (debugging)
+-			(void) fprintf(stderr, "rpcbind: could not decode\n");
++			(void) xlog(LOG_DEBUG, "rpcbind: could not decode");
+ 		return;
+ 	}
+ 
+@@ -182,7 +182,7 @@ rpcb_service_3(struct svc_req *rqstp, SVCXPRT *transp)
+ 						result)) {
+ 		svcerr_systemerr(transp);
+ 		if (debugging) {
+-			(void) fprintf(stderr, "rpcbind: svc_sendreply\n");
++			(void) xlog(LOG_DEBUG, "rpcbind: svc_sendreply");
+ 			if (doabort) {
+ 				rpcbind_abort();
+ 			}
+@@ -192,7 +192,7 @@ done:
+ 	if (!svc_freeargs(transp, (xdrproc_t)xdr_argument, (char *)
+ 				&argument)) {
+ 		if (debugging) {
+-			(void) fprintf(stderr, "unable to free arguments\n");
++			(void) xlog(LOG_DEBUG, "unable to free arguments");
+ 			if (doabort) {
+ 				rpcbind_abort();
+ 			}
+@@ -220,7 +220,7 @@ rpcbproc_getaddr_3_local(void *arg, struct svc_req *rqstp /*__unused*/,
+ 
+ 		uaddr = taddr2uaddr(rpcbind_get_conf(transp->xp_netid),
+ 			    svc_getrpccaller(transp));
+-		fprintf(stderr, "RPCB_GETADDR req for (%lu, %lu, %s) from %s: ",
++		xlog(LOG_DEBUG, "RPCB_GETADDR req for (%lu, %lu, %s) from %s: ",
+ 		    (unsigned long)regp->r_prog, (unsigned long)regp->r_vers,
+ 		    regp->r_netid, uaddr);
+ 		free(uaddr);
+diff --git a/src/rpcb_svc_4.c b/src/rpcb_svc_4.c
+index 313e6d1..f1a72a6 100644
+--- a/src/rpcb_svc_4.c
++++ b/src/rpcb_svc_4.c
+@@ -89,7 +89,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 		 */
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_NULL\n");
++			xlog(LOG_DEBUG, "RPCBPROC_NULL\n");
+ #endif
+ 		check_access(transp, rqstp->rq_proc, 0, RPCBVERS4);
+ 		(void) svc_sendreply(transp, (xdrproc_t) xdr_void,
+@@ -125,7 +125,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_GETVERSADDR:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_GETVERSADDR\n");
++			xlog(LOG_DEBUG, "RPCBPROC_GETVERSADDR\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_rpcb;
+ 		xdr_result = (xdrproc_t)xdr_wrapstring;
+@@ -135,7 +135,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_DUMP:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_DUMP\n");
++			xlog(LOG_DEBUG, "RPCBPROC_DUMP\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_void;
+ 		xdr_result = (xdrproc_t)xdr_rpcblist_ptr;
+@@ -145,7 +145,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_INDIRECT:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_INDIRECT\n");
++			xlog(LOG_DEBUG, "RPCBPROC_INDIRECT\n");
+ #endif
+ 		rpcbproc_callit_com(rqstp, transp, rqstp->rq_proc, RPCBVERS4);
+ 		return;
+@@ -154,7 +154,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_BCAST:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_BCAST\n");
++			xlog(LOG_DEBUG, "RPCBPROC_BCAST\n");
+ #endif
+ 		rpcbproc_callit_com(rqstp, transp, rqstp->rq_proc, RPCBVERS4);
+ 		return;
+@@ -162,7 +162,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_GETTIME:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_GETTIME\n");
++			xlog(LOG_DEBUG, "RPCBPROC_GETTIME\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_void;
+ 		xdr_result = (xdrproc_t)xdr_u_long;
+@@ -172,7 +172,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_UADDR2TADDR:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_UADDR2TADDR\n");
++			xlog(LOG_DEBUG, "RPCBPROC_UADDR2TADDR\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_wrapstring;
+ 		xdr_result = (xdrproc_t)xdr_netbuf;
+@@ -182,7 +182,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_TADDR2UADDR:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_TADDR2UADDR\n");
++			xlog(LOG_DEBUG, "RPCBPROC_TADDR2UADDR\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_netbuf;
+ 		xdr_result = (xdrproc_t)xdr_wrapstring;
+@@ -192,7 +192,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_GETADDRLIST:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_GETADDRLIST\n");
++			xlog(LOG_DEBUG, "RPCBPROC_GETADDRLIST\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_rpcb;
+ 		xdr_result = (xdrproc_t)xdr_rpcb_entry_list_ptr;
+@@ -202,7 +202,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 	case RPCBPROC_GETSTAT:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "RPCBPROC_GETSTAT\n");
++			xlog(LOG_DEBUG, "RPCBPROC_GETSTAT\n");
+ #endif
+ 		xdr_argument = (xdrproc_t)xdr_void;
+ 		xdr_result = (xdrproc_t)xdr_rpcb_stat_byvers;
+@@ -218,7 +218,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 		(char *)&argument)) {
+ 		svcerr_decode(transp);
+ 		if (debugging)
+-			(void) fprintf(stderr, "rpcbind: could not decode\n");
++			(void) xlog(LOG_DEBUG, "rpcbind: could not decode\n");
+ 		return;
+ 	}
+ 
+@@ -236,7 +236,7 @@ rpcb_service_4(struct svc_req *rqstp, SVCXPRT *transp)
+ 						result)) {
+ 		svcerr_systemerr(transp);
+ 		if (debugging) {
+-			(void) fprintf(stderr, "rpcbind: svc_sendreply\n");
++			(void) xlog(LOG_DEBUG, "rpcbind: svc_sendreply\n");
+ 			if (doabort) {
+ 				rpcbind_abort();
+ 			}
+@@ -246,7 +246,7 @@ done:
+ 	if (!svc_freeargs(transp, (xdrproc_t) xdr_argument,
+ 				(char *)&argument)) {
+ 		if (debugging) {
+-			(void) fprintf(stderr, "unable to free arguments\n");
++			(void) xlog(LOG_DEBUG, "unable to free arguments\n");
+ 			if (doabort) {
+ 				rpcbind_abort();
+ 			}
+@@ -277,7 +277,7 @@ rpcbproc_getaddr_4_local(void *arg, struct svc_req *rqstp, SVCXPRT *transp,
+ 
+ 		uaddr =	taddr2uaddr(rpcbind_get_conf(transp->xp_netid),
+ 			    svc_getrpccaller(transp));
+-		fprintf(stderr, "RPCB_GETADDR req for (%lu, %lu, %s) from %s: ",
++		xlog(LOG_DEBUG, "RPCB_GETADDR req for (%lu, %lu, %s) from %s: ",
+ 		    (unsigned long)regp->r_prog, (unsigned long)regp->r_vers,
+ 		    regp->r_netid, uaddr);
+ 		free(uaddr);
+@@ -307,7 +307,7 @@ rpcbproc_getversaddr_4_local(void *arg, struct svc_req *rqstp, SVCXPRT *transp,
+ 
+ 		uaddr = taddr2uaddr(rpcbind_get_conf(transp->xp_netid),
+ 			    svc_getrpccaller(transp));
+-		fprintf(stderr, "RPCB_GETVERSADDR rqst for (%lu, %lu, %s)"
++		xlog(LOG_DEBUG, "RPCB_GETVERSADDR rqst for (%lu, %lu, %s)"
+ 				" from %s : ",
+ 		    (unsigned long)regp->r_prog, (unsigned long)regp->r_vers,
+ 		    regp->r_netid, uaddr);
+@@ -353,7 +353,7 @@ rpcbproc_getaddrlist_4_local(void *arg, struct svc_req *rqstp /*__unused*/,
+ 	}
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging) {
+-		fprintf(stderr, "r_addr: %s r_netid: %s nc_protofmly: %s\n",
++		xlog(LOG_DEBUG, "r_addr: %s r_netid: %s nc_protofmly: %s\n",
+ 		    regp->r_addr, regp->r_netid, reg_nconf->nc_protofmly);
+ 	}
+ #endif
+@@ -369,20 +369,20 @@ rpcbproc_getaddrlist_4_local(void *arg, struct svc_req *rqstp /*__unused*/,
+ 		}
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "\tmerge with: %s\n",
++			xlog(LOG_DEBUG, "\tmerge with: %s\n",
+ 			    rbl->rpcb_map.r_addr);
+ #endif
+ 		if ((maddr = mergeaddr(transp, rbl->rpcb_map.r_netid,
+ 				rbl->rpcb_map.r_addr, saddr)) == NULL) {
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, " FAILED\n");
++			xlog(LOG_DEBUG, " FAILED\n");
+ #endif
+ 			continue;
+ 		} else if (!maddr[0]) {
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, " SUCCEEDED, but port died -  maddr: nullstring\n");
++		xlog(LOG_DEBUG, " SUCCEEDED, but port died -  maddr: nullstring\n");
+ #endif
+ 			/* The server died. Unset this combination */
+ 			delete_prog(regp->r_prog);
+@@ -390,7 +390,7 @@ rpcbproc_getaddrlist_4_local(void *arg, struct svc_req *rqstp /*__unused*/,
+ 		}
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, " SUCCEEDED maddr: %s\n", maddr);
++			xlog(LOG_DEBUG, " SUCCEEDED maddr: %s\n", maddr);
+ #endif
+ 		/*
+ 		 * Add it to rlist.
+@@ -418,7 +418,7 @@ rpcbproc_getaddrlist_4_local(void *arg, struct svc_req *rqstp /*__unused*/,
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging) {
+ 		for (rp = rlist; rp; rp = rp->rpcb_entry_next) {
+-			fprintf(stderr, "\t%s %s\n", rp->rpcb_entry_map.r_maddr,
++			xlog(LOG_DEBUG, "\t%s %s\n", rp->rpcb_entry_map.r_maddr,
+ 				rp->rpcb_entry_map.r_nc_proto);
+ 		}
+ 	}
+diff --git a/src/rpcb_svc_com.c b/src/rpcb_svc_com.c
+index 69a6d2d..3716f04 100644
+--- a/src/rpcb_svc_com.c
++++ b/src/rpcb_svc_com.c
+@@ -137,14 +137,14 @@ rpcbproc_set_com(void *arg, struct svc_req *rqstp /*__unused*/, SVCXPRT *transp,
+ 
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "RPCB_SET request for (%lu, %lu, %s, %s) : ",
++		xlog(LOG_DEBUG, "RPCB_SET request for (%lu, %lu, %s, %s) : ",
+ 		    (unsigned long)regp->r_prog, (unsigned long)regp->r_vers,
+ 		    regp->r_netid, regp->r_addr);
+ #endif
+ 	ans = map_set(regp, getowner(transp, owner, sizeof owner));
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "%s\n", ans == TRUE ? "succeeded" : "failed");
++		xlog(LOG_DEBUG, "RPCB_SET: %s", ans == TRUE ? "succeeded" : "failed");
+ #endif
+ 	/* XXX: should have used some defined constant here */
+ 	rpcbs_set(rpcbversnum - 2, ans);
+@@ -225,7 +225,7 @@ rpcbproc_unset_com(void *arg, struct svc_req *rqstp /*__unused*/, SVCXPRT *trans
+ 
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "RPCB_UNSET request for (%lu, %lu, %s) : ",
++		xlog(LOG_DEBUG, "RPCB_UNSET request for (%lu, %lu, %s) : ",
+ 		    (unsigned long)regp->r_prog, (unsigned long)regp->r_vers,
+ 		    regp->r_netid);
+ #endif
+@@ -233,7 +233,7 @@ rpcbproc_unset_com(void *arg, struct svc_req *rqstp /*__unused*/, SVCXPRT *trans
+ 	ans = map_unset(regp, getowner(transp, owner, sizeof owner));
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "%s\n", ans == TRUE ? "succeeded" : "failed");
++		xlog(LOG_DEBUG, "RPCB_UNSET: %s", ans == TRUE ? "succeeded" : "failed");
+ #endif
+ 	/* XXX: should have used some defined constant here */
+ 	rpcbs_unset(rpcbversnum - 2, ans);
+@@ -264,9 +264,9 @@ map_unset(RPCB *regp, char *owner)
+ 		 * if superuser or the owner itself.
+ 		 */
+ #ifdef RPCBIND_DEBUG
+-		fprintf(stderr,"Suppression RPC_UNSET(map_unset)\n ");
+-		fprintf(stderr,"rbl->rpcb_map.r_owner=%s\n ",rbl->rpcb_map.r_owner);
+-		fprintf(stderr,"owner=%s\n ",owner);
++		xlog(LOG_DEBUG,"Suppression RPC_UNSET(map_unset) ");
++		xlog(LOG_DEBUG,"rbl->rpcb_map.r_owner=%s ",rbl->rpcb_map.r_owner);
++		xlog(LOG_DEBUG,"owner=%s ",owner);
+ #endif
+ 		if (strcmp(owner, "superuser") &&
+ 			strcmp(rbl->rpcb_map.r_owner, owner))
+@@ -349,7 +349,7 @@ rpcbproc_getaddr_com(RPCB *regp, struct svc_req *rqstp /*__unused*/,
+ 	}
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "getaddr: %s\n", uaddr);
++		xlog(LOG_DEBUG, "getaddr: %s", uaddr);
+ #endif
+ 	/* XXX: should have used some defined constant here */
+ 	rpcbs_getaddr(rpcbversnum - 2, regp->r_prog, regp->r_vers,
+@@ -506,7 +506,7 @@ create_rmtcall_fd(struct netconfig *nconf)
+ 
+ 	if ((fd = __rpc_nconf2fd(nconf)) == -1) {
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 	"create_rmtcall_fd: couldn't open \"%s\" (errno %d)\n",
+ 			nconf->nc_device, errno);
+ 		return (-1);
+@@ -514,7 +514,7 @@ create_rmtcall_fd(struct netconfig *nconf)
+ 	xprt = svc_tli_create(fd, 0, (struct t_bind *) 0, 0, 0);
+ 	if (xprt == NULL) {
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 				"create_rmtcall_fd: svc_tli_create failed\n");
+ 		return (-1);
+ 	}
+@@ -656,7 +656,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ #endif	/* notyet */
+ 		if (buf_alloc == NULL) {
+ 			if (debugging)
+-				fprintf(stderr,
++				xlog(LOG_DEBUG,
+ 					"rpcbproc_callit_com:  No Memory!\n");
+ 			if (reply_type == RPCBPROC_INDIRECT)
+ 				svcerr_systemerr(transp);
+@@ -672,7 +672,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_decode(transp);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  svc_getargs failed\n");
+ 		goto error;
+ 	}
+@@ -686,7 +686,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging) {
+ 		uaddr = taddr2uaddr(rpcbind_get_conf(transp->xp_netid), caller);
+-		fprintf(stderr, "%s %s req for (%lu, %lu, %lu, %s) from %s : ",
++		xlog(LOG_DEBUG, "%s %s req for (%lu, %lu, %lu, %s) from %s : ",
+ 			versnum == PMAPVERS ? "pmap_rmtcall" :
+ 			versnum == RPCBVERS ? "rpcb_rmtcall" :
+ 			versnum == RPCBVERS4 ? "rpcb_indirect" : "unknown",
+@@ -707,7 +707,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 	if (rbl == (rpcblist_ptr)NULL) {
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			fprintf(stderr, "not found\n");
++			xlog(LOG_DEBUG, "not found\n");
+ #endif
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_noprog(transp);
+@@ -726,7 +726,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "found at uaddr %s\n", rbl->rpcb_map.r_addr);
++		xlog(LOG_DEBUG, "found at uaddr %s\n", rbl->rpcb_map.r_addr);
+ #endif
+ 	/*
+ 	 *	Check whether this entry is valid and a server is present
+@@ -750,14 +750,14 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_systemerr(transp);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  rpcbind_get_conf failed\n");
+ 		goto error;
+ 	}
+ 	localsa = local_sa(((struct sockaddr *)caller->buf)->sa_family);
+ 	if (localsa == NULL) {
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com: no local address\n");
+ 		goto error;
+ 	}
+@@ -780,7 +780,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 			nconf->nc_netid);
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging)
+-		fprintf(stderr, "merged uaddr %s\n", m_uaddr);
++		xlog(LOG_DEBUG, "merged uaddr %s\n", m_uaddr);
+ #endif
+ 	if ((fd = find_rmtcallfd_by_netid(nconf->nc_netid)) == -1) {
+ 		if (reply_type == RPCBPROC_INDIRECT)
+@@ -800,20 +800,20 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		 * beat on it any more.
+ 		 */
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  duplicate request\n");
+ 		goto error;
+ 	case -1:
+ 		/*  forward_register failed.  Perhaps no memory. */
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  forward_register failed\n");
+ 		goto error;
+ 	}
+ 
+ #ifdef DEBUG_RMTCALL
+ 	if (debugging)
+-		fprintf(stderr,
++		xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  original XID %x, new XID %x\n",
+ 				*xidp, call_msg.rm_xid);
+ #endif
+@@ -831,7 +831,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 			if (reply_type == RPCBPROC_INDIRECT)
+ 				svcerr_systemerr(transp);
+ 			if (debugging)
+-				fprintf(stderr,
++				xlog(LOG_DEBUG,
+ 				"rpcbproc_callit_com:  No memory!\n");
+ 			goto error;
+ 		}
+@@ -843,7 +843,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_systemerr(transp);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  xdr_callhdr failed\n");
+ 		goto error;
+ 	}
+@@ -851,7 +851,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_systemerr(transp);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 			"rpcbproc_callit_com:  xdr_u_long failed\n");
+ 		goto error;
+ 	}
+@@ -870,7 +870,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 	} else {
+ 		/* we do not support any other authentication scheme */
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ "rpcbproc_callit_com:  oa_flavor != AUTH_NONE and oa_flavor != AUTH_SYS\n");
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_weakauth(transp); /* XXX too strong.. */
+@@ -880,7 +880,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_systemerr(transp);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 		"rpcbproc_callit_com:  authwhatever_create returned NULL\n");
+ 		goto error;
+ 	}
+@@ -889,7 +889,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 			svcerr_systemerr(transp);
+ 		AUTH_DESTROY(auth);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 		"rpcbproc_callit_com:  AUTH_MARSHALL failed\n");
+ 		goto error;
+ 	}
+@@ -898,7 +898,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_systemerr(transp);
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 		"rpcbproc_callit_com:  xdr_opaque_parms failed\n");
+ 		goto error;
+ 	}
+@@ -918,7 +918,7 @@ rpcbproc_callit_com(struct svc_req *rqstp, SVCXPRT *transp,
+ 	if (sendto(fd, outbufp, outlen, 0, (struct sockaddr *)na->buf, na->len)
+ 	    != outlen) {
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 	"rpcbproc_callit_com:  sendto failed:  errno %d\n", errno);
+ 		if (reply_type == RPCBPROC_INDIRECT)
+ 			svcerr_systemerr(transp);
+@@ -1123,15 +1123,7 @@ my_svc_run()
+ 		}
+ 		nfds = p - pollfds;
+ 		poll_ret = 0;
+-#ifdef SVC_RUN_DEBUG
+-		if (debugging) {
+-			fprintf(stderr, "polling for read on fd < ");
+-			for (i = 0, p = pollfds; i < nfds; i++, p++)
+-				if (p->events)
+-					fprintf(stderr, "%d ", p->fd);
+-			fprintf(stderr, ">\n");
+-		}
+-#endif
++
+ 		switch (poll_ret = poll(pollfds, nfds, 30 * 1000)) {
+ 		case -1:
+ 			/*
+@@ -1144,15 +1136,6 @@ my_svc_run()
+ 			__svc_clean_idle(&cleanfds, 30, FALSE);
+ 			continue;
+ 		default:
+-#ifdef SVC_RUN_DEBUG
+-			if (debugging) {
+-				fprintf(stderr, "poll returned read fds < ");
+-				for (i = 0, p = pollfds; i < nfds; i++, p++)
+-					if (p->revents)
+-						fprintf(stderr, "%d ", p->fd);
+-				fprintf(stderr, ">\n");
+-			}
+-#endif
+ 			/*
+ 			 * If we found as many replies on callback fds
+ 			 * as the number of descriptors selectable which
+@@ -1165,11 +1148,6 @@ my_svc_run()
+ 				continue;
+ 			svc_getreq_poll(pollfds, poll_ret-check_ret);
+ 		}
+-#ifdef SVC_RUN_DEBUG
+-		if (debugging) {
+-			fprintf(stderr, "svc_maxfd now %u\n", svc_maxfd);
+-		}
+-#endif
+ 	}
+ }
+ 
+@@ -1189,7 +1167,7 @@ check_rmtcalls(struct pollfd *pfds, int nfds)
+ 				ncallbacks_found++;
+ #ifdef DEBUG_RMTCALL
+ 			if (debugging)
+-				fprintf(stderr,
++				xlog(LOG_DEBUG,
+ "my_svc_run:  polled on forwarding fd %d, netid %s - calling handle_reply\n",
+ 		pfds[j].fd, xprt->xp_netid);
+ #endif
+@@ -1274,7 +1252,7 @@ handle_reply(int fd, SVCXPRT *xprt)
+ 	} while (inlen < 0 && errno == EINTR);
+ 	if (inlen < 0) {
+ 		if (debugging)
+-			fprintf(stderr,
++			xlog(LOG_DEBUG,
+ 	"handle_reply:  recvfrom returned %d, errno %d\n", inlen, errno);
+ 		goto done;
+ 	}
+@@ -1286,14 +1264,14 @@ handle_reply(int fd, SVCXPRT *xprt)
+ 	xdrmem_create(&reply_xdrs, buffer, (u_int)inlen, XDR_DECODE);
+ 	if (!xdr_replymsg(&reply_xdrs, &reply_msg)) {
+ 		if (debugging)
+-			(void) fprintf(stderr,
++			(void) xlog(LOG_DEBUG,
+ 				"handle_reply:  xdr_replymsg failed\n");
+ 		goto done;
+ 	}
+ 	fi = forward_find(reply_msg.rm_xid);
+ #ifdef	SVC_RUN_DEBUG
+ 	if (debugging) {
+-		fprintf(stderr, "handle_reply:  reply xid: %d fi addr: %p\n",
++		xlog(LOG_DEBUG, "handle_reply:  reply xid: %d fi addr: %p\n",
+ 			reply_msg.rm_xid, fi);
+ 	}
+ #endif
+@@ -1303,7 +1281,7 @@ handle_reply(int fd, SVCXPRT *xprt)
+ 	_seterr_reply(&reply_msg, &reply_error);
+ 	if (reply_error.re_status != RPC_SUCCESS) {
+ 		if (debugging)
+-			(void) fprintf(stderr, "handle_reply:  %s\n",
++			(void) xlog(LOG_DEBUG, "handle_reply:  %s\n",
+ 				clnt_sperrno(reply_error.re_status));
+ 		send_svcsyserr(xprt, fi);
+ 		goto done;
+@@ -1327,7 +1305,7 @@ done:
+ 	if (reply_msg.rm_xid == 0) {
+ #ifdef	SVC_RUN_DEBUG
+ 	if (debugging) {
+-		fprintf(stderr, "handle_reply:  NULL xid on exit!\n");
++		xlog(LOG_DEBUG, "handle_reply:  NULL xid on exit!\n");
+ 	}
+ #endif
+ 	} else
+diff --git a/src/rpcbind.c b/src/rpcbind.c
+index bf40807..2789baf 100644
+--- a/src/rpcbind.c
++++ b/src/rpcbind.c
+@@ -72,6 +72,7 @@
+ #include <errno.h>
+ #include <nss.h>
+ #include "rpcbind.h"
++#include "xlog.h"
+ 
+ /*#define RPCBIND_DEBUG*/
+ 
+@@ -110,6 +111,9 @@ int nhosts = 0;
+ int on = 1;
+ int rpcbindlockfd;
+ 
++#ifdef LIB_SET_DEBUG
++void  libtirpc_set_debug(char *name, int level, int use_stderr);
++#endif
+ #ifdef WARMSTART
+ /* Local Variable */
+ static int warmstart = 0;	/* Grab an old copy of registrations. */
+@@ -159,7 +163,7 @@ main(int argc, char *argv[])
+ 			rl.rlim_cur = 128;
+ 		setrlimit(RLIMIT_NOFILE, &rl);
+ 	}
+-	openlog("rpcbind", LOG_CONS, LOG_DAEMON);
++
+ 	if (geteuid()) { /* This command allowed only to root */
+ 		fprintf(stderr, "Sorry. You are not superuser\n");
+ 		exit(1);
+@@ -184,7 +188,20 @@ main(int argc, char *argv[])
+ 		syslog(LOG_ERR, "%s: can't find local transport\n", argv[0]);
+ 		exit(1);
+ 	}
+-	
++	xlog_open("rpcbind");
++	if (dofork) {
++		xlog_syslog(TRUE);
++		xlog_stderr(FALSE);
++	} else {
++		xlog_syslog(FALSE);
++		xlog_stderr(TRUE);
++	}
++	if (debugging) {
++		xlog_config(D_ALL, 1);
++#ifdef LIB_SET_DEBUG
++		libtirpc_set_debug("rpcbind", debugging, (dofork == 0));
++#endif
++	}
+ 	rpc_control(RPC_SVC_CONNMAXREC_SET, &maxrec);
+ 
+ 	init_transport(nconf);
+@@ -213,18 +230,16 @@ main(int argc, char *argv[])
+ 	(void) signal(SIGUSR1, SIG_IGN);
+ 	(void) signal(SIGUSR2, SIG_IGN);
+ 
+-	if (debugging) {
+ #ifdef RPCBIND_DEBUG 
+-		printf("rpcbind debugging enabled.");
+-		if (doabort) {
+-			printf("  Will abort on errors!\n");
+-		} else {
+-			printf("\n");
+-		}
++	if (debugging) {
++		xlog(LOG_DEBUG, "debugging enabled.");
++		if (doabort)
++			xlog(LOG_DEBUG, "Will abort on errors!\n");
++	}
+ #endif
+-	} else if (dofork) {
++	if (dofork) {
+ 		if (daemon(0, 0))
+-        		err(1, "fork failed");
++        	err(1, "fork failed");
+ 	}
+ 
+ 	if (runasdaemon || rpcbinduser) {
+@@ -306,11 +321,11 @@ init_transport(struct netconfig *nconf)
+ 		int i;
+ 		char **s;
+ 
+-		(void) fprintf(stderr, "%s: %ld lookup routines :\n",
++		(void) xlog(LOG_DEBUG, "%s: %ld lookup routines :\n",
+ 			nconf->nc_netid, nconf->nc_nlookups);
+ 		for (i = 0, s = nconf->nc_lookups; i < nconf->nc_nlookups;
+ 		     i++, s++)
+-			fprintf(stderr, "[%d] - %s\n", i, *s);
++			xlog(LOG_DEBUG, "[%d] - %s\n", i, *s);
+ 	}
+ #endif
+ 	if (!__rpc_nconf2sockinfo(nconf, &si)) {
+@@ -540,7 +555,7 @@ init_transport(struct netconfig *nconf)
+ 				}
+ 				nb.len = nb.maxlen = sa_size;
+ 				uaddr = taddr2uaddr(nconf, &nb);
+-				(void) fprintf(stderr,
++				(void) xlog(LOG_DEBUG,
+ 				    "rpcbind : my address is %s\n", uaddr);
+ 				(void) free(uaddr);
+ 			}
+@@ -617,7 +632,7 @@ init_transport(struct netconfig *nconf)
+ 			}
+ 			nb.len = nb.maxlen = sa_size2;
+ 			uaddr = taddr2uaddr(nconf, &nb);
+-			(void) fprintf(stderr, "rpcbind : my address is %s\n",
++			(void) xlog(LOG_DEBUG, "rpcbind : my address is %s\n",
+ 			    uaddr);
+ 			(void) free(uaddr);
+ 		}
+@@ -724,13 +739,13 @@ got_socket:
+ #ifdef RPCBIND_DEBUG
+ 	if (debugging) {
+ 		if (status < 0) {
+-			fprintf(stderr, "Error in finding bind status for %s\n",
++			xlog(LOG_DEBUG, "Error in finding bind status for %s\n",
+ 				nconf->nc_netid);
+ 		} else if (status == 0) {
+-			fprintf(stderr, "check binding for %s\n",
++			xlog(LOG_DEBUG, "check binding for %s\n",
+ 				nconf->nc_netid);
+ 		} else if (status > 0) {
+-			fprintf(stderr, "No check binding for %s\n",
++			xlog(LOG_DEBUG, "No check binding for %s\n",
+ 				nconf->nc_netid);
+ 		}
+ 	}
+@@ -744,11 +759,11 @@ got_socket:
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging) {
+ 			if (status < 0) {
+-				fprintf(stderr,
++				xlog(LOG_DEBUG,
+ 				    "Could not create rmtcall fd for %s\n",
+ 					nconf->nc_netid);
+ 			} else {
+-				fprintf(stderr, "rmtcall fd for %s is %d\n",
++				xlog(LOG_DEBUG, "rmtcall fd for %s is %d\n",
+ 					nconf->nc_netid, status);
+ 			}
+ 		}
+@@ -773,8 +788,8 @@ rbllist_add(rpcprog_t prog, rpcvers_t vers, struct netconfig *nconf,
+ 	}
+ #ifdef RPCBIND_DEBUG	
+ 	if (debugging){
+-	  fprintf(stderr,"FUNCTION rbllist_add");
+-	  fprintf(stderr,"Add the prog %lu vers %lu to the rpcbind list\n",
++	  xlog(LOG_DEBUG,"FUNCTION rbllist_add");
++	  xlog(LOG_DEBUG,"Add the prog %lu vers %lu to the rpcbind list",
+                   (ulong)prog, (ulong)vers);
+ 	}
+ #endif	
+@@ -824,7 +839,7 @@ parseargs(int argc, char *argv[])
+ 			break;		/* errors; for rpcbind developers */
+ 					/* only! */
+ 		case 'd':
+-			debugging = 1;
++			debugging++;
+ 			break;
+ 		case 'h':
+ 			++nhosts;
+diff --git a/src/security.c b/src/security.c
+index d272f74..70edef4 100644
+--- a/src/security.c
++++ b/src/security.c
+@@ -80,7 +80,7 @@ check_access(SVCXPRT *xprt, rpcproc_t proc, rpcprog_t prog, unsigned int rpcbver
+ 		if (!insecure && !is_loopback(caller)) {
+ #ifdef RPCBIND_DEBUG
+ 			  if (debugging)
+-			    fprintf(stderr, " declined (non-loopback sender) \n");
++			    xlog(LOG_DEBUG, " declined (non-loopback sender) \n");
+ #endif
+ 			if (verboselog)
+ 				logit(log_severity, addr, proc, prog,
+@@ -134,7 +134,7 @@ is_loopback(struct netbuf *nbuf)
+ 		sin = (struct sockaddr_in *)addr;
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			  fprintf(stderr,
++			  xlog(LOG_DEBUG,
+ 				  "Checking caller's adress (port = %d)\n",
+ 				  ntohs(sin->sin_port));
+ #endif
+@@ -146,7 +146,7 @@ is_loopback(struct netbuf *nbuf)
+ 		sin6 = (struct sockaddr_in6 *)addr;
+ #ifdef RPCBIND_DEBUG
+ 		if (debugging)
+-			  fprintf(stderr,
++			  xlog(LOG_DEBUG,
+ 				  "Checking caller's adress (port = %d)\n",
+ 				  ntohs(sin6->sin6_port));
+ #endif
+diff --git a/src/xlog.c b/src/xlog.c
+new file mode 100644
+index 0000000..ab6c717
+--- /dev/null
++++ b/src/xlog.c
+@@ -0,0 +1,234 @@
++/*
++ * support/nfs/xlog.c
++ *
++ * This module handles the logging of requests.
++ *
++ * TODO:	Merge the two "XXX_log() calls.
++ *
++ * Authors:	Donald J. Becker, <becker@super.org>
++ *		Rick Sladkey, <jrs@world.std.com>
++ *		Fred N. van Kempen, <waltje@uWalt.NL.Mugnet.ORG>
++ *		Olaf Kirch, <okir@monad.swb.de>
++ *
++ *		This software maybe be used for any purpose provided
++ *		the above copyright notice is retained.  It is supplied
++ *		as is, with no warranty expressed or implied.
++ */
++
++#ifdef HAVE_CONFIG_H
++#include <config.h>
++#endif
++
++#include <unistd.h>
++#include <signal.h>
++#include <time.h>
++#include <stdlib.h>
++#include <string.h>
++#include <stdio.h>
++#include <stdarg.h>
++#include <syslog.h>
++#include <errno.h>
++#include "xlog.h"
++
++#undef	VERBOSE_PRINTF
++
++static int  log_stderr = 1;
++static int  log_syslog = 1;
++static int  logging = 0;		/* enable/disable DEBUG logs	*/
++static int  logmask = 0;		/* What will be logged		*/
++static char log_name[256];		/* name of this program		*/
++static int  log_pid = -1;		/* PID of this program		*/
++
++int export_errno = 0;
++
++static void	xlog_toggle(int sig);
++static struct xlog_debugfac	debugnames[] = {
++	{ "general",	D_GENERAL, },
++	{ "call",	D_CALL, },
++	{ "auth",	D_AUTH, },
++	{ "parse",	D_PARSE, },
++	{ "all",	D_ALL, },
++	{ NULL,		0, },
++};
++
++void
++xlog_open(char *progname)
++{
++	openlog(progname, LOG_PID, LOG_DAEMON);
++
++	strncpy(log_name, progname, sizeof (log_name) - 1);
++	log_name [sizeof (log_name) - 1] = '\0';
++	log_pid = getpid();
++
++	signal(SIGUSR1, xlog_toggle);
++	signal(SIGUSR2, xlog_toggle);
++}
++
++void
++xlog_stderr(int on)
++{
++	log_stderr = on;
++}
++
++void
++xlog_syslog(int on)
++{
++	log_syslog = on;
++}
++
++static void
++xlog_toggle(int sig)
++{
++	unsigned int	tmp, i;
++
++	if (sig == SIGUSR1) {
++		if ((logmask & D_ALL) && !logging) {
++			xlog(D_GENERAL, "turned on logging");
++			logging = 1;
++			return;
++		}
++		tmp = ~logmask;
++		logmask |= ((logmask & D_ALL) << 1) | D_GENERAL;
++		for (i = -1, tmp &= logmask; tmp; tmp >>= 1, i++)
++			if (tmp & 1)
++				xlog(D_GENERAL,
++					"turned on logging level %d", i);
++	} else {
++		xlog(D_GENERAL, "turned off logging");
++		logging = 0;
++	}
++	signal(sig, xlog_toggle);
++}
++
++void
++xlog_config(int fac, int on)
++{
++	if (on)
++		logmask |= fac;
++	else
++		logmask &= ~fac;
++	if (on)
++		logging = 1;
++}
++
++void
++xlog_sconfig(char *kind, int on)
++{
++	struct xlog_debugfac	*tbl = debugnames;
++
++	while (tbl->df_name != NULL && strcasecmp(tbl->df_name, kind)) 
++		tbl++;
++	if (!tbl->df_name) {
++		xlog (L_WARNING, "Invalid debug facility: %s\n", kind);
++		return;
++	}
++	xlog_config(tbl->df_fac, on);
++}
++
++int
++xlog_enabled(int fac)
++{
++	return (logging && (fac & logmask));
++}
++
++
++/* Write something to the system logfile and/or stderr */
++void
++xlog_backend(int kind, const char *fmt, va_list args)
++{
++	va_list args2;
++
++	if (!(kind & (L_ALL)) && !(logging && (kind & logmask)))
++		return;
++
++	if (log_stderr)
++		va_copy(args2, args);
++
++	if (log_syslog) {
++		switch (kind) {
++		case L_FATAL:
++			vsyslog(LOG_ERR, fmt, args);
++			break;
++		case L_ERROR:
++			vsyslog(LOG_ERR, fmt, args);
++			break;
++		case L_WARNING:
++			vsyslog(LOG_WARNING, fmt, args);
++			break;
++		case L_NOTICE:
++			vsyslog(LOG_NOTICE, fmt, args);
++			break;
++		default:
++			if (!log_stderr)
++				vsyslog(LOG_INFO, fmt, args);
++			break;
++		}
++	}
++
++	if (log_stderr) {
++#ifdef VERBOSE_PRINTF
++		time_t		now;
++		struct tm	*tm;
++
++		time(&now);
++		tm = localtime(&now);
++		fprintf(stderr, "%s[%d] %04d-%02d-%02d %02d:%02d:%02d ",
++				log_name, log_pid,
++				tm->tm_year+1900, tm->tm_mon + 1, tm->tm_mday,
++				tm->tm_hour, tm->tm_min, tm->tm_sec);
++#else
++		fprintf(stderr, "%s: ", log_name);
++#endif
++		vfprintf(stderr, fmt, args2);
++		fprintf(stderr, "\n");
++		va_end(args2);
++	}
++
++	if (kind == L_FATAL)
++		exit(1);
++}
++
++void
++xlog(int kind, const char* fmt, ...)
++{
++	va_list args;
++
++	if (kind & (L_ERROR|D_GENERAL))
++		export_errno = 1;
++
++	va_start(args, fmt);
++	xlog_backend(kind, fmt, args);
++	va_end(args);
++}
++
++void
++xlog_warn(const char* fmt, ...)
++{
++	va_list args;
++
++	va_start(args, fmt);
++	xlog_backend(L_WARNING, fmt, args);
++	va_end(args);
++}
++
++
++void
++xlog_err(const char* fmt, ...)
++{
++	va_list args;
++
++	va_start(args, fmt);
++	xlog_backend(L_FATAL, fmt, args);
++	va_end(args);
++}
++
++void
++xlog_errno(int err, const char *fmt, ...)
++{
++	va_list args;
++
++	errno = err;
++	va_start(args, fmt);
++	xlog_backend(L_FATAL, fmt, args);
++	va_end(args);
++}
+diff --git a/src/xlog.h b/src/xlog.h
+new file mode 100644
+index 0000000..a57b96c
+--- /dev/null
++++ b/src/xlog.h
+@@ -0,0 +1,52 @@
++/*
++ * xlog		Logging functionality
++ *
++ * Copyright (C) 1995 Olaf Kirch <okir@monad.swb.de>
++ */
++
++#ifndef XLOG_H
++#define XLOG_H
++
++#include <stdarg.h>
++
++/* These are logged always. L_FATAL also does exit(1) */
++#define L_FATAL		0x0100
++#define L_ERROR		0x0200
++#define L_WARNING	0x0400
++#define L_NOTICE	0x0800
++#define L_ALL		0xFF00
++
++/* These are logged if enabled with xlog_[s]config */
++/* NB: code does not expect ORing together D_ and L_ */
++#define D_GENERAL	0x0001		/* general debug info */
++#define D_CALL		0x0002
++#define D_AUTH		0x0004
++#define D_FAC3		0x0008
++#define D_FAC4		0x0010
++#define D_FAC5		0x0020
++#define D_PARSE		0x0040
++#define D_FAC7		0x0080
++#define D_ALL		0x00FF
++
++/* This can be used to define symbolic log names that can be passed to
++ * xlog_config.
++ */
++struct xlog_debugfac {
++	char		*df_name;
++	int		df_fac;
++};
++
++extern int export_errno;
++void			xlog_open(char *progname);
++void			xlog_stderr(int on);
++void			xlog_syslog(int on);
++void			xlog_config(int fac, int on);
++void			xlog_sconfig(char *, int on);
++int			xlog_enabled(int fac);
++void			xlog(int fac, const char *fmt, ...);
++void			xlog_warn(const char *fmt, ...);
++void			xlog_err(const char *fmt, ...);
++void			xlog_errno(int err, const char *fmt, ...);
++void			xlog_backend(int fac, const char *fmt, va_list args);
++
++#endif /* XLOG_H */

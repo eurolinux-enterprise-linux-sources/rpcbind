@@ -1,0 +1,38 @@
+diff -up rpcbind-0.2.0/src/rpcb_svc_com.c.orig rpcbind-0.2.0/src/rpcb_svc_com.c
+--- rpcbind-0.2.0/src/rpcb_svc_com.c.orig	2015-11-30 14:57:10.267576072 -0500
++++ rpcbind-0.2.0/src/rpcb_svc_com.c	2015-11-30 14:59:06.305393416 -0500
+@@ -1204,12 +1204,33 @@ check_rmtcalls(struct pollfd *pfds, int
+ 	return (ncallbacks_found);
+ }
+ 
++/*
++ * This is really a helper function defined in libtirpc, 
++ * but unfortunately, it hasn't been exported yet.
++ */
++static struct netbuf *
++__rpc_set_netbuf(struct netbuf *nb, const void *ptr, size_t len)
++{
++	if (nb->len != len) {
++		if (nb->len)
++			mem_free(nb->buf, nb->len);
++		nb->buf = mem_alloc(len);
++		if (nb->buf == NULL)
++			return NULL;
++
++		nb->maxlen = nb->len = len;
++	}
++	memcpy(nb->buf, ptr, len);
++	return nb;
++}
++
+ static void
+ xprt_set_caller(SVCXPRT *xprt, struct finfo *fi)
+ {
++	const struct netbuf *caller = fi->caller_addr;
+ 	u_int32_t *xidp;
+ 
+-	*(svc_getrpccaller(xprt)) = *(fi->caller_addr);
++	__rpc_set_netbuf(svc_getrpccaller(xprt), caller->buf, caller->len);
+ 	xidp = __rpcb_get_dg_xidp(xprt);
+ 	*xidp = fi->caller_xid;
+ }

@@ -1,0 +1,22 @@
+commit 6e67b1e5e3a36649ad05829f8bae9d2a9e703594
+Author: Steve Dickson <steved@redhat.com>
+Date:   Mon Sep 22 08:49:08 2014 -0400
+
+    rpcinfo: Fixed typo in rpcinfo man page
+    
+    Signed-off-by: Steve Dickson <steved@redhat.com>
+
+diff --git a/man/rpcinfo.8 b/man/rpcinfo.8
+index 5ece18f..750ffce 100644
+--- a/man/rpcinfo.8
++++ b/man/rpcinfo.8
+@@ -20,8 +20,7 @@
+ .Nm "rpcinfo"
+ .Fl l
+ .Op Fl T Ar transport
+-.Ar host Ar prognum
+-.Op Ar versnum
++.Ar host Ar prognum Ar versnum
+ .Nm "rpcinfo"
+ .Op Fl n Ar portnum
+ .Fl u

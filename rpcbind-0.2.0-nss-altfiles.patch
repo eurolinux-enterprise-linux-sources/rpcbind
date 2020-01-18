@@ -1,0 +1,62 @@
+diff -up rpcbind-0.2.0/configure.ac.orig rpcbind-0.2.0/configure.ac
+--- rpcbind-0.2.0/configure.ac.orig	2015-05-04 08:09:47.390954657 -0400
++++ rpcbind-0.2.0/configure.ac	2015-05-04 08:10:23.707550057 -0400
+@@ -27,6 +27,13 @@ AC_ARG_WITH([rpcuser],
+   ,, [with_rpcuser=root])
+ AC_SUBST([rpcuser], [$with_rpcuser])
+  
++AC_ARG_WITH([nss_modules],
++  AS_HELP_STRING([--with-nss-modules=NSS_MODULES]
++  , [Sets the nss module search list to the given space-delimited string.
++     For example --with-nss-modules="files altfiles" @<:@default=files@:>@])
++  ,, [with_nss_modules=files])
++AC_SUBST([nss_modules], [$with_nss_modules])
++
+ PKG_CHECK_MODULES([TIRPC], [libtirpc])
+ 
+ AS_IF([test x$enable_libwrap = xyes], [
+diff -up rpcbind-0.2.0/Makefile.am.orig rpcbind-0.2.0/Makefile.am
+--- rpcbind-0.2.0/Makefile.am.orig	2015-05-04 08:09:47.386954591 -0400
++++ rpcbind-0.2.0/Makefile.am	2015-05-04 08:10:23.707550057 -0400
+@@ -6,6 +6,7 @@ AM_CPPFLAGS = \
+ 	-DINET6 \
+ 	-DRPCBIND_STATEDIR="\"$(statedir)\"" \
+ 	-DRPCBIND_USER="\"$(rpcuser)\"" \
++	-DNSS_MODULES="\"$(nss_modules)\"" \
+ 	-D_GNU_SOURCE \
+ 	$(TIRPC_CFLAGS)
+ 
+diff -up rpcbind-0.2.0/src/rpcbind.c.orig rpcbind-0.2.0/src/rpcbind.c
+--- rpcbind-0.2.0/src/rpcbind.c.orig	2015-05-04 08:09:47.387954608 -0400
++++ rpcbind-0.2.0/src/rpcbind.c	2015-05-04 08:10:23.707550057 -0400
+@@ -86,6 +86,12 @@ char *rpcbinduser = RPCBIND_USER;
+ char *rpcbinduser = NULL;
+ #endif
+ 
++#ifdef NSS_MODULES
++char *nss_modules = NSS_MODULES;
++#else
++char *nss_modules = "files";
++#endif
++
+ /* who to suid to if -s is given */
+ #define RUN_AS  "daemon"
+ 
+@@ -160,7 +166,7 @@ main(int argc, char *argv[])
+ 	 * Make sure we use the local service file 
+ 	 * for service lookkups
+ 	 */
+-	__nss_configure_lookup("services", "files");
++	__nss_configure_lookup("services", nss_modules);
+ 
+ 	nc_handle = setnetconfig(); 	/* open netconfig file */
+ 	if (nc_handle == NULL) {
+@@ -226,7 +232,7 @@ main(int argc, char *argv[])
+ 		 * Make sure we use the local password file
+ 		 * for these lookups.
+ 		 */
+-		__nss_configure_lookup("passwd", "files");
++		__nss_configure_lookup("passwd", nss_modules);
+ 
+ 		if((p = getpwnam(id)) == NULL) {
+ 			syslog(LOG_ERR, "cannot get uid of '%s': %m", id);

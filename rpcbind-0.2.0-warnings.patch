@@ -1,0 +1,39 @@
+commit d62f79d7905149719715f74c188b47d7911c928c
+Author: Steve Dickson <steved@redhat.com>
+Date:   Mon Aug 18 11:44:19 2014 -0400
+
+    rpcbind: Remove a strict-aliasing warning
+    
+    src/util.c: In function ?in6_fillscopeid?:
+    src/util.c:106:3: warning: dereferencing type-punned pointer will break
+    strict-aliasing rules [-Wstrict-aliasing]
+       ifindex = ntohs(*(u_int16_t *)&sin6->sin6_addr.s6_addr[2]);
+       ^
+    
+    src/util.c:109:4: warning: dereferencing type-punned pointer will break
+    strict-aliasing rules [-Wstrict-aliasing]
+        *(u_int16_t *)&sin6->sin6_addr.s6_addr[2] = 0;
+    
+    Signed-off-by: Steve Dickson <steved@redhat.com>
+
+diff --git a/src/util.c b/src/util.c
+index 9a5fb69..7d56479 100644
+--- a/src/util.c
++++ b/src/util.c
+@@ -101,12 +101,14 @@ static void
+ in6_fillscopeid(struct sockaddr_in6 *sin6)
+ {
+ 	u_int16_t ifindex;
++	u_int16_t *addr;
+ 
+         if (IN6_IS_ADDR_LINKLOCAL(&sin6->sin6_addr)) {
+-		ifindex = ntohs(*(u_int16_t *)&sin6->sin6_addr.s6_addr[2]);
++		addr = (u_int16_t *)&sin6->sin6_addr.s6_addr[2];
++		ifindex = ntohs(*addr);
+ 		if (sin6->sin6_scope_id == 0 && ifindex != 0) {
+ 			sin6->sin6_scope_id = ifindex;
+-			*(u_int16_t *)&sin6->sin6_addr.s6_addr[2] = 0;
++			*addr = 0;
+ 		}
+ 	}
+ }
