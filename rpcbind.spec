@@ -1,10 +1,10 @@
 Name:           rpcbind
 Version:        0.2.0
-Release:        48%{?dist}
+Release:        38%{?dist}.1
 Summary:        Universal Addresses to RPC Program Number Mapper
 Group:          System Environment/Daemons
 License:        BSD
-URL:            http://git.linux-nfs.org/?p=steved/rpcbind.git;a=summary
+URL:            http://nfsv4.bullopensource.org
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-root-%(%{__id_u} -n)
 Source0:        http://downloads.sourceforge.net/rpcbind/%{name}-%{version}.tar.bz2
@@ -30,20 +30,13 @@ Patch008: rpcbind-0.2.0-warmstart-noerror.patch
 Patch009: rpcbind-0.2.0-CVE20157236-memcorrup.patch 
 Patch010: rpcbind-0.2.0-debug.patch
 #
-# RHEL7.4
+# RHEL7.3-Z
 #
-Patch011: rpcbind-0.2.0-xlog-warn.patch
-Patch012: rpcbind-0.2.0-i-warn.patch
-Patch013: rpcbind-0.2.0-memleaks.patch
-Patch014: rpcbind-0.2.0-freeing-static-memory.patch
-#
-# RHEL7.7
-#
-Patch015: rpcbind-0.2.0-rpcinfo-buf-overflow.patch
+Patch011: rpcbind-0.2.0-memleaks.patch
+Patch012: rpcbind-0.2.0-freeing-static-memory.patch
 
 
 Requires: glibc-common setup
-Requires: libtirpc >= 0.2.4-0.7
 Conflicts: man-pages < 2.43-12
 BuildRequires: automake, autoconf, libtool, systemd-units
 BuildRequires: libtirpc-devel, quota-devel, tcp_wrappers-devel, systemd-devel
@@ -80,16 +73,10 @@ RPC calls on a server on that machine.
 %patch009 -p1
 # 1358890 - Enable upstream debugging
 %patch010 -p1
-# 1377531 - Compiler warning: implicit declaration of function 'xlog'....
+# 1449462 - CVE-2017-8779 rpcbind: libtirpc, libntirpc: Memory leak...
 %patch011 -p1
-# 1377560 - Compiler warning: unused variable 'i' [-Wunused-variable]
+# 1457172 - rpcbind crash on start 
 %patch012 -p1
-# 1449456 rpcbind: Memory leak when failing to parse XDR strings...
-%patch013 -p1
-# 1454876 - rpcbind crash on start
-%patch014 -p1
-# 1637567 - rpcinfo: Fix stack buffer overflow
-%patch015 -p1
 
 %build
 %ifarch s390 s390x
@@ -203,37 +190,11 @@ fi
 %dir %attr(700,rpc,rpc) /var/lib/rpcbind
 
 %changelog
-* Tue Jan 22 2019 Steve Dickson <steved@redhat.com> - 0.2.0-48
-- rpcinfo: Fix stack buffer overflow (bz 1637567)
+* Wed May 31 2017 Steve Dickson <steved@redhat.com> - 0.2.0-38_3.1
+- Stop freeing static memory (bz 1457172)
 
-* Sat Aug 25 2018 Steve Dickson <steved@redhat.com> - 0.2.0-47
-- rpcbind.service: Not pulling the rpcbind.target (bz 1613210)
-
-* Mon Aug 20 2018 Steve Dickson <steved@redhat.com> - 0.2.0-46
-- Updated the upsteam URL (bz 1583921)
-
-* Thu Apr 19 2018 Steve Dickson <steved@redhat.com> - 0.2.0-45
-- Added back the ListenStream stanzas from rpcbind.socket (bz 1530721)
-
-* Fri Jan  5 2018 Steve Dickson <steved@redhat.com> - 0.2.0-44
-* Removed ListenStream stanzas from rpcbind.socket (bz 1425758)
-
-* Wed Oct 25 2017 Steve Dickson <steved@redhat.com> - 0.2.0-43
-- Updated rpcbind.service to upstream version (bz 1425663)
-
-* Tue May 30 2017 Steve Dickson <steved@redhat.com> - 0.2.0-42
-- Stop freeing static memory (bz 1454876)
-
-* Wed May 17 2017 Steve Dickson <steved@redhat.com> - 0.2.0-41
-- Fixed typo in memory leaks patch (bz 1449456)
-
-* Thu May 11 2017 Steve Dickson <steved@redhat.com> - 0.2.0-40
-- Fixed memory leaks (bz 1449456)
-
-* Sat Feb 25 2017 Steve Dickson <steved@redhat.com> - 0.2.0-39
-- Added libtirpc dependency (bz 1396291)
-- Removed xlog warning (bz 1377531)
-- Removed an 'i' warning (bz 1377560)
+* Wed May 17 2017 Steve Dickson <steved@redhat.com> - 0.2.0-38_3
+- Fixed typo in memory leaks patch (bz 1449462)
 
 * Tue Aug  2 2016 Steve Dickson <steved@redhat.com> - 0.2.0-38
 - Removing the braces from the ${RPCBIND_ARGS} in rpcbind.service (bz 1362232)
